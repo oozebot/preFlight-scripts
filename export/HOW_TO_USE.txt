@@ -1,0 +1,114 @@
+Export to Script - preFlight
+============================
+
+Export to Script lets you run a Python script when exporting G-code.
+The script receives the G-code data and decides what to do with it:
+save to a folder, upload via FTP, send to a network printer, or all of the above.
+
+Security
+--------
+An export script is a Python program that runs with FULL ACCESS to
+your computer - filesystem, network, subprocesses, and everything else
+Python can do. Export scripts need the same consent as preprocessing
+scripts (Configuration > Preferences > Preprocessing); without it the
+option stays off. Only use scripts you trust.
+
+Setup
+-----
+1. Go to Print Settings > Output options > Export to Script
+2. Check "Enable export script"
+3. Browse to select your Python script (.py file)
+4. After slicing, click the Export dropdown and choose "Export to Script"
+
+Writing a Script
+----------------
+Your script must define an export(gcode) function:
+
+    import preFlight
+
+    def export(gcode: preFlight.ExportGCode):
+        # gcode.data     - list of strings, one per G-code line (with trailing newline)
+        # gcode.filename - suggested output filename, from the output filename format
+
+        # Write to disk. newline='' keeps the line ends as they are, so the
+        # file is the one a save to disk writes; without it Windows writes CR LF.
+        with open(f"/path/to/{gcode.filename}", 'w', encoding='utf-8', newline='') as f:
+            f.writelines(gcode.data)
+
+The import and the type hint are optional; "def export(gcode):" works
+the same.
+
+The gcode.data list is mutable. You can modify, insert, or remove lines
+before writing. Standard Python list operations all work:
+
+    gcode.data.insert(0, "; My custom header\n")
+    gcode.data = [line for line in gcode.data if not line.startswith("M300")]
+    gcode.data.append("; End of file\n")
+
+The script runs using preFlight's embedded Python interpreter.
+Standard library modules (ftplib, ssl, io, json, os, etc.) are available.
+Packages installed via pip in preFlight's bundled Python are also available.
+
+What the Script Receives
+------------------------
+gcode.data is the same text a save to disk writes: the thumbnails, the
+settings block and the print statistics are in it as comment lines.
+
+Two things a save to disk does are not applied to it:
+- The post-processing scripts of Print Settings > Output options are
+  not run.
+- The text is not converted to binary G-code, whatever the printer
+  profile says.
+
+preFlight writes no file itself when Export to Script is used: the
+script is responsible for all output.
+
+Notes
+-----
+- export() runs in the background: preFlight stays usable, and the
+  job's Cancel button interrupts the script.
+- The preprocessing time limit applies (Preferences > Preprocessing,
+  default 5 minutes, 0 = none).
+- To report a failure, raise RuntimeError("what went wrong"): the
+  message is shown in an error dialog. Do not call sys.exit().
+- One export runs at a time; a second one is refused until the first
+  finishes.
+- A script file named like a standard-library module (os, json,
+  logging, ...) is rejected; rename it.
+- Helper modules beside your script can be imported by it. A helper
+  named like a standard-library or installed module is not used: the
+  real module wins, as in preprocessing scripts.
+- print() output is visible when preFlight is started through
+  preFlight-console.
+
+Without the Application
+-----------------------
+preFlight-console runs the export script of the print settings when
+asked to, after it has written its own G-code file:
+
+  preFlight-console.exe --allow-scripts --export-to-script --export-gcode -o out.gcode project.3mf
+
+--allow-scripts gives the consent the application asks for.
+--export-script-enabled and --export-script <file> set the script on
+the command line when the project's print settings do not. A script
+that fails makes the console exit with an error.
+
+Sample Scripts
+--------------
+The samples/ folder contains ready-to-use scripts:
+
+  save_to_folder.py   - Save G-code to a configurable output folder
+  ftps_upload.py      - Upload via FTPS (implicit TLS, port 990)
+  save_and_upload.py  - Save locally AND upload via FTPS
+
+Copy a sample, edit the configuration section at the top, and point
+Export to Script at your copy.
+
+Type Hints (IDE Support)
+------------------------
+The preFlight.py file provides type stubs for IDE auto-completion. It
+is generated from preFlight's own bindings, the same file the
+preprocessing folder holds, so it also declares the preprocessing API;
+an export script uses its ExportGCode class.
+Copy it alongside your script or add this folder to your IDE's
+extra paths for full IntelliSense support. preFlight never executes it.
